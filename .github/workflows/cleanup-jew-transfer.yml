@@ -1,0 +1,84 @@
+name: Verify and clean JEW transfer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cleanup-jew-transfer.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  verify-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact package and remove temporary helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_file=/tmp/jew-expected.tsv
+          cat > "$expected_file" <<'EOF'
+          e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	.nojekyll
+          a1c8ab533a8472e98e252fa0fe6b213658c85545	README.md
+          ccd1b1121736ca40c34572ea811d9e4debb6d112	assets/THIRD-PARTY-NOTICES.txt
+          83e27c4c065678e955e9ab9fe4a4d62f4ec590d2	assets/app.js
+          216e1e4b85a1305d37b342f72516032908654f55	assets/configuration.js
+          5346052699b98eef2a5c6bfde00d4c1d12befd2b	assets/decoder-worker.js
+          4a5aa13594369ebdd45d3dbe4c19df2e3e07d4b1	assets/encoder-worker.js
+          246b0fe22f78d98e8b99c9172508b2b8d8a091fb	assets/ffmpeg-core.wasm
+          2969c2ccf0410195f0e7aee680f274d19e504255	assets/fvad.wasm
+          ec90a04ec22e06aad950ac6caea15bc39cdadcf5	assets/recording-time.js
+          3caa4def92d48221e8792030e68ed4285edafb49	assets/sections.js
+          2259f6084e0925a13d0a66614815d703c9b9c0af	assets/snapshots.js
+          d3ad8155f835ba3c961ea708ab126480c22b1e4a	assets/styles.css
+          7c779d64ee7ab6817c3616232b2d6cb18ebccf7f	assets/transcription.js
+          e327b9fad156939b18258068040fbe5d696feabd	index.html
+          EOF
+
+          verify_package() {
+            local expected path actual
+            while IFS=$'\t' read -r expected path; do
+              [ -f "$path" ] || return 1
+              actual="$(git hash-object "$path")"
+              [ "$actual" = "$expected" ] || return 1
+            done < "$expected_file"
+          }
+
+          ok=0
+          for attempt in $(seq 1 30); do
+            git pull --ff-only origin main || true
+            if verify_package; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$ok" -ne 1 ]; then
+            echo "Exact package verification did not pass; leaving transfer helpers intact."
+            exit 1
+          fi
+
+          rm -rf .github/jew-package
+          rm -f .github/workflows/install-jew-package.yml
+          rm -f .github/workflows/install-jew-package-retry.yml
+          rm -f .github/workflows/install-jew-ffmpeg.yml
+          rm -f .github/workflows/cleanup-jew-transfer.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No temporary files remained."
+            exit 0
+          fi
+          git commit -m "Remove temporary JEW transfer helpers"
+          git push
