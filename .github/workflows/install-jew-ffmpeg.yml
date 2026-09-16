@@ -1,0 +1,46 @@
+name: Install JEW FFmpeg runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/install-jew-ffmpeg.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install exact FFmpeg WASM from the packaged upstream version
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="9f57947a5bd530d8f00c5b3f2cb2a3492faa7e5d823315342d6a8656d0a6b7b7"
+          tmp="$(mktemp -d)"
+          cd "$tmp"
+          tgz="$(npm pack @ffmpeg/core@0.12.10 --silent | tail -n 1)"
+          tar -xzf "$tgz"
+          src="package/dist/umd/ffmpeg-core.wasm"
+          test -f "$src"
+          actual="$(sha256sum "$src" | awk '{print $1}')"
+          if [ "$actual" != "$expected" ]; then
+            echo "FFmpeg WASM hash mismatch: expected $expected, got $actual" >&2
+            exit 1
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/assets"
+          cp "$src" "$GITHUB_WORKSPACE/assets/ffmpeg-core.wasm"
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/ffmpeg-core.wasm
+          if git diff --cached --quiet; then
+            echo "Exact FFmpeg runtime is already present."
+            exit 0
+          fi
+          git commit -m "Add packaged FFmpeg WebAssembly runtime"
+          git push
