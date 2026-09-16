@@ -1,0 +1,38 @@
+name: Install JEW package assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/install-jew-package.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore packaged files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/jew-package/chunk0* > /tmp/jew-small.b64
+          base64 -d /tmp/jew-small.b64 > /tmp/jew-small.tar.xz
+          mkdir -p /tmp/jew-extract
+          tar -xJf /tmp/jew-small.tar.xz -C /tmp/jew-extract
+          cp -a /tmp/jew-extract/. "$GITHUB_WORKSPACE"/
+          cd "$GITHUB_WORKSPACE"
+          rm -rf .github/jew-package
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Package already present."
+            exit 0
+          fi
+          git commit -m "Add complete JEW GitHub package"
+          git push
